@@ -1,34 +1,5 @@
 /***********************************************************************************
-*This program is a demo of how to display picture and 
-*how to use rotate function to display string.
-*This demo was made for LCD modules with 8bit or 16bit data port.
-*This program requires the the LCDKIWI library.
-
-* File                : AnalogClock.ino
-* Hardware Environment: Seeduino with RTC
-* Build Environment   : Arduino
-
-*Set the pins to the correct ones for your development shield or breakout board.
-*This demo use the BREAKOUT BOARD only and use these 8bit data lines to the LCD,
-*pin usage as follow:
-*                  LCD_CS  LCD_CD  LCD_WR  LCD_RD  LCD_RST  SD_SS  SD_DI  SD_DO  SD_SCK 
-*     Arduino Uno    A3      A2      A1      A0      A4      10     11     12      13                            
-*Arduino Mega2560    A3      A2      A1      A0      A4      10     11     12      13                           
-
-*                  LCD_D0  LCD_D1  LCD_D2  LCD_D3  LCD_D4  LCD_D5  LCD_D6  LCD_D7  
-*     Arduino Uno    8       9       2       3       4       5       6       7
-*Arduino Mega2560    8       9       2       3       4       5       6       7 
-
-*Remember to set the pins to suit your display module!
-*
-* @attention
-*
-* THE PRESENT FIRMWARE WHICH IS FOR GUIDANCE ONLY AIMS AT PROVIDING CUSTOMERS
-* WITH CODING INFORMATION REGARDING THEIR PRODUCTS IN ORDER FOR THEM TO SAVE
-* TIME. AS A RESULT, QD electronic SHALL NOT BE HELD LIABLE FOR ANY
-* DIRECT, INDIRECT OR CONSEQUENTIAL DAMAGES WITH RESPECT TO ANY CLAIMS ARISING
-* FROM THE CONTENT OF SUCH FIRMWARE AND/OR THE USE MADE BY CUSTOMERS OF THE 
-* CODING INFORMATION CONTAINED HEREIN IN CONNECTION WITH THEIR PRODUCTS.
+Analog clock with LCDWIKI_KBV and RTC_DS1307
 **********************************************************************************/
 #include <TouchScreen.h>
 #include <LCDWIKI_GUI.h> //Core graphics library
@@ -156,8 +127,21 @@ void drawDate(DateTime now, bool firstTime)
 
   int yPos = clockPos.y + clockPos.r + DATE_SEPARATION;
   int xPos = 3 * CLOCK_PADDING;
-  String dateStr = String(now.month()) + "/" + String(now.day())
-    + "/" + String(now.year()) + " " + daysOfTheWeek[now.dayOfTheWeek()]; 
+  String dateStr;
+  String strMonth = String(now.month());
+  String strDay = String(now.day());
+  
+  if(strMonth.length() < 2) {
+    strMonth = '0' + strMonth;
+  }
+
+  if(strDay.length() < 2) {
+    strDay = '0' + strDay;
+  }
+  
+  dateStr = strMonth + "/" + strDay
+    + "/" + String(now.year()) + " " + 
+    daysOfTheWeek[now.dayOfTheWeek()]; 
   mylcd.Print_String(dateStr, xPos, yPos);
 }
 
@@ -203,6 +187,8 @@ float getAngleForHour(float theHour) {
 void drawInnerCircle() {
   mylcd.Set_Draw_color(INNER_CIRCLE_COLOR);
   mylcd.Fill_Circle(clockPos.x, clockPos.y, INNER_CIRCLE_RADIUS);
+  mylcd.Set_Draw_color(CLOCK_HASH_COLOR);
+  mylcd.Fill_Circle(clockPos.x, clockPos.y, INNER_CIRCLE_RADIUS / 20);
 }
 
 // Expects hour from 0 to 11, with 0 being 12 AM/PM
