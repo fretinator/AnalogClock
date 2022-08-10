@@ -1,5 +1,6 @@
 /***********************************************************************************
-Analog clock with LCDWIKI_KBV and RTC_DS1307
+Draw an Analog Clock using a little Rectangular to Polar Coordinate Fun. Uses RTC Clock
+to keep time. 
 **********************************************************************************/
 #include <TouchScreen.h>
 #include <LCDWIKI_GUI.h> //Core graphics library
@@ -16,6 +17,8 @@ RTC_DS1307 clock;
 
 char daysOfTheWeek[7][12] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 Coordinates point = Coordinates();
+
+
 
 //define some colour values
 #define  BLACK   0x0000
@@ -35,11 +38,13 @@ Coordinates point = Coordinates();
 #define HOUR_HAND_COLOR BLACK
 #define MINUTE_HAND_COLOR DARK_GRAY
 #define INNER_CIRCLE_COLOR GREEN
+#define BTN_BACK_COLOR GREEN
+#define BTN_TEXT_COLOR RED
 
 
 int curMillis = 0;
 int lastMillis = 0;
-const int UPDATE_MILLIS = 1000; // Every second
+const int UPDATE_MILLIS = 5000; // Every second
 bool firstRun = true;
 const int prevDayOfMonth = -1;
 const int CLOCK_PADDING = 10;
@@ -55,8 +60,10 @@ const float CIRCLE_RADS = 2 * PI;
 const float APPROXIMATION_VALUE = 0.001;
 const int DATE_SEPARATION = 60; // 30 pixels below clock
 const int DATE_SIZE = 3; // How big to write the date
+const int BTN_TEXT_SIZE = 3;
+const int BTN_TEXT_PAD = 8;
 
-struct HashPos {
+struct RectPos {
   int x1;
   int y1;
   int x2;
@@ -67,7 +74,7 @@ struct AnalogClockPos {
   int x;
   int y;
   int r;
-  HashPos hash_pos[12];
+  RectPos hash_pos[12];
 };
 
 struct HourPos {
@@ -93,11 +100,60 @@ MinutePos lastMinutePos;
 int lastMinute = -1; // used to know when to redraw hands
 int lastDay = -1; // used to know when to redraw date
 
-
-int screenWidth, screenHeight;
-
 AnalogClockPos clockPos;
 
+// For Touch
+#define YP A3  // must be an analog pin, use "An" notation!
+#define XM A2  // must be an analog pin, use "An" notation!
+#define YM 9   // can be a digital pin
+#define XP 8   // can be a digital pin
+
+//param calibration from kbv
+#define TS_MINX 906
+#define TS_MAXX 116
+#define TS_MINY 92 
+#define TS_MAXY 952
+#define MINPRESSURE 10
+#define MAXPRESSURE 1000
+#define TOUCH_CHECK_DELAY 500 // millis
+
+TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
+
+const int screenWidth = mylcd.Get_Display_Width();
+const int screenHeight = mylcd.Get_Display_Height();
+int last_touch_millis_check = 0;
+
+// setup buttons
+int btnBoxSize =  screenWidth / 6;
+int x1Pos = (btnBoxSize / 2);
+int x2Pos = x1Pos + btnBoxSize + (btnBoxSize / 4);
+int x3Pos = screenWidth - (2 * btnBoxSize) - (btnBoxSize / 2);
+int x4Pos = x3Pos + btnBoxSize + (btnBoxSize / 4);
+int yPos = screenHeight - btnBoxSize - (btnBoxSize / 4);
+
+RectPos btnHMinus  = {x1Pos, yPos, x1Pos + btnBoxSize, yPos + btnBoxSize};
+RectPos btnHPlus = {x2Pos, yPos, x2Pos + btnBoxSize, yPos + btnBoxSize};
+RectPos btnMMinus = {x3Pos, yPos, x3Pos + btnBoxSize, yPos + btnBoxSize};
+RectPos btnMPlus = {x4Pos, yPos, x4Pos + btnBoxSize, yPos + btnBoxSize};
+
+
+void drawChangeButton(String text, RectPos pos) {
+  mylcd.Set_Draw_color(BTN_BACK_COLOR);
+  mylcd.Fill_Rectangle(pos.x1, pos.y1, pos.x2, pos.y2);
+
+  mylcd.Set_Text_Size(BTN_TEXT_SIZE);
+  mylcd.Set_Text_Back_colour(BTN_BACK_COLOR);
+  mylcd.Set_Text_colour(BTN_TEXT_COLOR);
+
+  mylcd.Print_String(text, pos.x1 + BTN_TEXT_PAD, pos.y1 + 2 * BTN_TEXT_PAD);
+}
+
+void drawHourMinuteChangeButtons() {
+  drawChangeButton("H-", btnHMinus);
+  drawChangeButton("H+", btnHPlus);
+  drawChangeButton("M-", btnMMinus);
+  drawChangeButton("M+", btnMPlus);
+}
 
 bool approximatelyEqual(float f1, float f2) {
   return abs(f1 - f2) < APPROXIMATION_VALUE;
@@ -188,12 +244,12 @@ void drawInnerCircle() {
   mylcd.Set_Draw_color(INNER_CIRCLE_COLOR);
   mylcd.Fill_Circle(clockPos.x, clockPos.y, INNER_CIRCLE_RADIUS);
   mylcd.Set_Draw_color(CLOCK_HASH_COLOR);
-  mylcd.Fill_Circle(clockPos.x, clockPos.y, INNER_CIRCLE_RADIUS / 20);
+  mylcd.Fill_Circle(clockPos.x, clockPos.y, INNER_CIRCLE_RADIUS / 2);
 }
 
 // Expects hour from 0 to 11, with 0 being 12 AM/PM
 void drawTimeHash(int theHour) {
-  HashPos myPos = clockPos.hash_pos[theHour];
+  RectPos myPos = clockPos.hash_pos[theHour];
 
   mylcd.Set_Draw_color(CLOCK_HASH_COLOR);
   
@@ -292,14 +348,14 @@ void drawHands(DateTime now, bool firstTime) {
 
 
 // Draw a 
-void drawClock(bool firstTime) {
+void drawClock(bool firstTime, bool forceDrawHands) {
   if(firstTime) {
     drawFace();
   }
 
   DateTime now = clock.now();
   
-  if(firstTime || (now.minute() != lastMinute)) { 
+  if(firstTime || forceDrawHands || (now.minute() != lastMinute)) { 
     drawHands(now, firstTime);
   }
 
@@ -309,13 +365,17 @@ void drawClock(bool firstTime) {
     drawDate(now, firstTime);
   }
 
+  if(firstTime) {
+    drawHourMinuteChangeButtons();
+  }
+
   lastMinute = now.minute();
   lastDay = now.day();
 }
 
 
 // Used to draw lines for 1,2,4,5,7,8,10,11
-void calculateHashPosForLine(int theHour, int* x1, int* y1, int* x2, int* y2) {
+void calculateRectPosForLine(int theHour, int* x1, int* y1, int* x2, int* y2) {
 
   float phi = getAngleForHour(theHour);
 
@@ -339,7 +399,7 @@ void calculateHashPosForLine(int theHour, int* x1, int* y1, int* x2, int* y2) {
 }
 
 // Expects hour from 0 to 11, 0 = 12 AM/PM
-void calculateHashPos(HashPos* hash_pos, int theHour) {
+void calculateRectPos(RectPos* hash_pos, int theHour) {
   switch(theHour) {
     case 0: // RECTANGLE
       hash_pos->x1 = clockPos.x - (HASH_RECT_WIDTH / 2);
@@ -366,7 +426,7 @@ void calculateHashPos(HashPos* hash_pos, int theHour) {
       hash_pos->y2 = hash_pos->y1 + HASH_RECT_WIDTH;      
       break;
     default: // LINE
-    calculateHashPosForLine(
+    calculateRectPosForLine(
         theHour,
         &hash_pos->x1,
         &hash_pos->y1,
@@ -376,9 +436,6 @@ void calculateHashPos(HashPos* hash_pos, int theHour) {
 }
 
 void calculateClockPosition() {
-  screenWidth = mylcd.Get_Display_Width();
-  screenHeight = mylcd.Get_Display_Height();
-
   // We expect to run in vertical position, where width is less than height
 
   // The x origin
@@ -388,20 +445,23 @@ void calculateClockPosition() {
 
   // Now set the positions for the 12 hashes for hours
   for(int myHour = 0; myHour < 12; myHour++) {
-    calculateHashPos(&clockPos.hash_pos[myHour], myHour);
+    calculateRectPos(&clockPos.hash_pos[myHour], myHour);
   }
 }
 
 void setup() 
 {
   Serial.begin(9600);
+
   if(!clock.begin()) {
     Serial.println("Couldn't find RTC");
     Serial.flush();
     abort();
   }
 
-  //clock.adjust(DateTime(2020, 12, 30, 14, 34, 0));;
+  pinMode(13, OUTPUT); // For touch
+
+  //clock.adjust(DateTime(2022, 8, 9, 13, 6, 0));;
   
   if (! clock.isrunning()) {
     Serial.println("RTC is NOT running, let's set the time!");
@@ -412,7 +472,7 @@ void setup()
     // January 21, 2014 at 3am you would call:
     // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
   }
-    
+  // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));  
   mylcd.Init_LCD();
   Serial.println(mylcd.Read_ID(), HEX);
 
@@ -424,14 +484,85 @@ void setup()
   calculateClockPosition();
 }
 
+void printTime(String msg, DateTime tm) {
+  int hour = tm.hour();
+  int min = tm.minute();
+
+  Serial.println(msg + " - H=" + String(hour) + ":" + String(min));
+}
+
+void changeTime(int minutes) {
+    DateTime tm = clock.now();
+    printTime("Old Time", tm);
+
+    TimeSpan ts = TimeSpan(minutes * 60);
+    tm = tm + ts;
+    printTime("New Time", tm);
+
+    clock.adjust(tm);
+    drawClock(false, true);
+    delay(200);
+}
+
+bool pointInRec(TSPoint p, RectPos rec) {
+  return 
+    p.x >= rec.x1 &&
+    p.x <= rec.x2 &&
+    p.y >= rec.y1 &&
+    p.y <= rec.y2;
+
+}
+
+void doTouchCheck(TSPoint p) {
+   if(pointInRec(p, btnHMinus)) {
+    Serial.println("btnHMinus pressed");
+    changeTime(-60);
+    return;
+  }
+
+  if(pointInRec(p, btnHPlus)) {
+    Serial.println("btnHPlus pressed");
+    changeTime(60);
+    return;
+  }
+
+  if(pointInRec(p, btnMMinus)) {
+    Serial.println("btnMMinus pressed");
+    changeTime(-1);
+    return;
+  }
+
+  if(pointInRec(p, btnMPlus)) {
+    Serial.println("btnMPlus pressed");
+    changeTime(1);
+    return;
+  }
+}
+
 void loop() 
 {
   curMillis = millis();
+  if(!firstRun) {
+    // Check for touch first
+    digitalWrite(13, HIGH);
+    TSPoint p = ts.getPoint();
+    digitalWrite(13, LOW);
+    pinMode(XM, OUTPUT);
+    pinMode(YP, OUTPUT);
+
+    if (p.z > MINPRESSURE && p.z < MAXPRESSURE)  {
+      p.x = map(p.x, TS_MINX, TS_MAXX, screenWidth, 0);
+      p.y = map(p.y, TS_MINY, TS_MAXY, screenHeight,0);
+      Serial.println("Touch - x: " + String(p.x) + ", y" + String(p.y) + ", z:" + p.z);
+      doTouchCheck(p);
+    }
+  }
+
 
   if(0 == lastMillis ||
       curMillis < lastMillis || // millis rolled over
       (curMillis - lastMillis) >= UPDATE_MILLIS) {
-    drawClock(firstRun);
+    drawClock(firstRun, false);
     Serial.println("Time to draw the clock!");
     firstRun = false;
     lastMillis = curMillis;
